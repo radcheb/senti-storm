@@ -1,0 +1,4 @@
+#!/bin/sh
+
+ant run -DconsumerKey=IEhTcaONSfZyx0lIiXLLNHEXU -DconsumerSecret=tWHPxM3fwBnDcAEH5JwnO5no9hFgofenG2B8WwEVuJkux4XA8f \
+-DaccessToken=2872327043-gCQDaQk2423UTt7FQxclG7qZZBcl8iMrobHlJWK -DaccessTokenSecret=401nrunsVgTqgsJQkA4wsh1MPfAWGU2jd1eSvA8nHE5iD
