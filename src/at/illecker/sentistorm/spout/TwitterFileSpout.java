@@ -95,16 +95,6 @@ public class TwitterFileSpout extends BaseRichSpout {
 
     BufferedReader reader;
     LOG.info("reading file: "+path);
-    try {
-//		ClassLoader classLoader = getClass().getClassLoader();
-//		File file =new File(classLoader.getResource(path).getFile());
-//	    reader=new BufferedReader(new FileReader(path));
-
-	    LOG.info("starting reading");
-	} catch (Exception ex) {
-		LOG.error("Error while reading file", ex);
-		LOG.trace("", ex);
-	}
 
   }
 
@@ -114,7 +104,7 @@ public class TwitterFileSpout extends BaseRichSpout {
     if (tweet == null) {
     	// send a random tweet if the queue is empty
     	m_collector.emit(new Values("123456", "Why this is happening to me !!!", null));
-      TimeUtils.sleepMillis(2); // sleep 1 ms
+      //TimeUtils.sleepMillis(1); // sleep 1 ms
     } else {
       // Emit tweet
 //      m_collector.emit(new Values(tweet.getId(), tweet.getText(), null, input_rate));

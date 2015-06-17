@@ -83,7 +83,6 @@ public class SentiStormTopology {
 
 		Config conf = new Config();
 
-		
 		// Create Spout
 		IRichSpout spout;
 		String spoutID = "";
@@ -117,14 +116,14 @@ public class SentiStormTopology {
 						(String) Configuration
 								.get("sentistorm.spout.filter.language"));
 				spoutID = TwitterStreamSpout.ID;
-			} else {
+			}else{
 				if (Configuration.get("sentistorm.spout.startup.sleep.ms") != null) {
 					conf.put(TwitterFileSpout.CONF_STARTUP_SLEEP_MS,
 							(Integer) Configuration
 									.get("sentistorm.spout.startup.sleep.ms"));
 				}
-				spout = new TwitterFileSpout(
-						(String) Configuration
+
+				spout = new TwitterFileSpout((String) Configuration
 								.get("sentistorm.spout.static.tweets"));
 				spoutID = TwitterFileSpout.ID;
 			}

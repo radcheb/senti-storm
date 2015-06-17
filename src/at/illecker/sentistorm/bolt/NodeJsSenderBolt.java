@@ -13,10 +13,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import at.illecker.sentistorm.commons.SentimentClass;
+
 import backtype.storm.metric.api.CountMetric;
 import backtype.storm.metric.api.MeanReducer;
 import backtype.storm.metric.api.MultiCountMetric;
 import backtype.storm.metric.api.ReducedMetric;
+
 import backtype.storm.task.OutputCollector;
 import backtype.storm.task.TopologyContext;
 import backtype.storm.topology.OutputFieldsDeclarer;
@@ -65,7 +67,7 @@ public class NodeJsSenderBolt extends BaseRichBolt {
 		neutres = 0;
 		reconnect();
 		timestamp = System.currentTimeMillis();
-		initMetrics(context);
+//		initMetrics(context);
 	}
 	void initMetrics(TopologyContext context)
 	{
@@ -77,6 +79,7 @@ public class NodeJsSenderBolt extends BaseRichBolt {
 	    context.registerMetric("word_count", _wordCountMetric, 60);
 	    context.registerMetric("word_length", _wordLengthMeanMetric, 60);
 	}
+
 	private void reconnect() {
 		this.client = HttpClientBuilder.create().build();
 	}
@@ -130,7 +133,7 @@ public class NodeJsSenderBolt extends BaseRichBolt {
 			timestamp = System.currentTimeMillis();
 			updateUI(input_rate);
 		}
-     	 updateMetrics("ok");
+//     	 updateMetrics("ok");
 	}
 	void updateMetrics(String word)
 	{
