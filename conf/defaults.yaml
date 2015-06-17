@@ -165,6 +165,7 @@ sentistorm.spout.startup.sleep.ms: 20000 # 20 sec
 sentistorm.spout.tuple.sleep.ms: null
 sentistorm.spout.tuple.sleep.ns: null # 250000 = 0.25 ms
 sentistorm.spout.filter.language: "en"
+sentistorm.spout.static.tweets: "resources/tweets/tweets.txt"
 
 sentistorm.bolt.tokenizer.parallelism: 1
 sentistorm.bolt.tokenizer.logging: false
@@ -180,4 +181,24 @@ sentistorm.bolt.featuregeneration.parallelism: 1
 sentistorm.bolt.featuregeneration.logging: false
 
 sentistorm.bolt.svm.parallelism: 1
-sentistorm.bolt.svm.logging: true
+sentistorm.bolt.svm.logging: false
+
+sentistorm.bolt.nodejssender.logging: true
+sentistorm.bolt.nodejssender.parallelism: 1
+sentistorm.bolt.nodejssender.webserver: "http://localhost:3001/post"
+
+##############################################################################
+### topology.* configs are for storm configuration
+##############################################################################
+
+# Controls the time interval between metric reports
+topology.builtin.metrics.bucket.size.secs: 10
+topology.metrics.consumer.register:
+  - class: "com.verisign.storm.metrics.GraphiteMetricsConsumer"
+    parallelism.hint: 1
+    argument:
+      metrics.reporter.name: "com.verisign.storm.metrics.reporters.graphite.GraphiteReporter"
+      metrics.graphite.host: "172.17.42.1"
+      metrics.graphite.port: "2003"
+      metrics.graphite.prefix: "storm.test"
+      metrics.graphite.min-connect-attempt-interval-secs: "5"

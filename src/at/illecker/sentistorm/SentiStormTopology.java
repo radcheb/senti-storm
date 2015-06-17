@@ -19,7 +19,11 @@ package at.illecker.sentistorm;
 import java.util.Arrays;
 import java.util.TreeMap;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import at.illecker.sentistorm.bolt.FeatureGenerationBolt;
+import at.illecker.sentistorm.bolt.NodeJsSenderBolt;
 import at.illecker.sentistorm.bolt.POSTaggerBolt;
 import at.illecker.sentistorm.bolt.PreprocessorBolt;
 import at.illecker.sentistorm.bolt.SVMBolt;
@@ -27,161 +31,240 @@ import at.illecker.sentistorm.bolt.TokenizerBolt;
 import at.illecker.sentistorm.commons.Configuration;
 import at.illecker.sentistorm.commons.util.io.kyro.TaggedTokenSerializer;
 import at.illecker.sentistorm.spout.DatasetSpout;
+import at.illecker.sentistorm.spout.TwitterFileSpout;
 import at.illecker.sentistorm.spout.TwitterStreamSpout;
 import backtype.storm.Config;
+import backtype.storm.LocalCluster;
 import backtype.storm.StormSubmitter;
+import backtype.storm.metric.LoggingMetricsConsumer;
 import backtype.storm.topology.IRichSpout;
 import backtype.storm.topology.TopologyBuilder;
 import cmu.arktweetnlp.Tagger.TaggedToken;
 
 import com.esotericsoftware.kryo.serializers.DefaultSerializers.TreeMapSerializer;
+import com.verisign.storm.metrics.GraphiteMetricsConsumer;
 
 public class SentiStormTopology {
-  public static final String TOPOLOGY_NAME = "senti-storm-topology";
+	public static final String TOPOLOGY_NAME = "senti-storm-topology";
+	public static final Boolean LOCAL = false;
+	public static final Boolean SIMULATION = true;
+	private static final Logger LOG = LoggerFactory
+			.getLogger(SentiStormTopology.class);
 
-  public static void main(String[] args) throws Exception {
-    String consumerKey = "";
-    String consumerSecret = "";
-    String accessToken = "";
-    String accessTokenSecret = "";
-    String[] keyWords = null;
+	public static void main(String[] args) throws Exception {
+		String consumerKey = "";
+		String consumerSecret = "";
+		String accessToken = "";
+		String accessTokenSecret = "";
+		String[] keyWords = null;
+		LOG.info("Starting...");
+		if (args.length > 0) {
+			if (args.length >= 4) {
+				consumerKey = args[0];
+				System.out.println("TwitterSpout using ConsumerKey: "
+						+ consumerKey);
+				consumerSecret = args[1];
+				accessToken = args[2];
+				accessTokenSecret = args[3];
+				if (args.length == 5) {
+					keyWords = args[4].split(" ");
+					System.out.println("TwitterSpout using KeyWords: "
+							+ Arrays.toString(keyWords));
+				}
+			} else {
+				System.out.println("Wrong argument size!");
+				System.out.println("    Argument1=consumerKey");
+				System.out.println("    Argument2=consumerSecret");
+				System.out.println("    Argument3=accessToken");
+				System.out.println("    Argument4=accessTokenSecret");
+				System.out.println("    [Argument5=keyWords]");
+			}
+		}
 
-    if (args.length > 0) {
-      if (args.length >= 4) {
-        consumerKey = args[0];
-        System.out.println("TwitterSpout using ConsumerKey: " + consumerKey);
-        consumerSecret = args[1];
-        accessToken = args[2];
-        accessTokenSecret = args[3];
-        if (args.length == 5) {
-          keyWords = args[4].split(" ");
-          System.out.println("TwitterSpout using KeyWords: "
-              + Arrays.toString(keyWords));
-        }
-      } else {
-        System.out.println("Wrong argument size!");
-        System.out.println("    Argument1=consumerKey");
-        System.out.println("    Argument2=consumerSecret");
-        System.out.println("    Argument3=accessToken");
-        System.out.println("    Argument4=accessTokenSecret");
-        System.out.println("    [Argument5=keyWords]");
-      }
-    }
+		Config conf = new Config();
 
-    Config conf = new Config();
+		
+		// Create Spout
+		IRichSpout spout;
+		String spoutID = "";
+		if (consumerKey.isEmpty()) {
+			if (Configuration.get("sentistorm.spout.startup.sleep.ms") != null) {
+				conf.put(DatasetSpout.CONF_STARTUP_SLEEP_MS,
+						(Integer) Configuration
+								.get("sentistorm.spout.startup.sleep.ms"));
+			}
+			if (Configuration.get("sentistorm.spout.tuple.sleep.ms") != null) {
+				conf.put(DatasetSpout.CONF_TUPLE_SLEEP_MS,
+						(Integer) Configuration
+								.get("sentistorm.spout.tuple.sleep.ms"));
+			}
+			if (Configuration.get("sentistorm.spout.tuple.sleep.ns") != null) {
+				conf.put(DatasetSpout.CONF_TUPLE_SLEEP_NS,
+						(Integer) Configuration
+								.get("sentistorm.spout.tuple.sleep.ns"));
+			}
+			spout = new DatasetSpout();
+			spoutID = DatasetSpout.ID;
+		} else {
+			if (!SIMULATION) {
+				if (Configuration.get("sentistorm.spout.startup.sleep.ms") != null) {
+					conf.put(TwitterStreamSpout.CONF_STARTUP_SLEEP_MS,
+							(Integer) Configuration
+									.get("sentistorm.spout.startup.sleep.ms"));
+				}
+				spout = new TwitterStreamSpout(consumerKey, consumerSecret,
+						accessToken, accessTokenSecret, keyWords,
+						(String) Configuration
+								.get("sentistorm.spout.filter.language"));
+				spoutID = TwitterStreamSpout.ID;
+			} else {
+				if (Configuration.get("sentistorm.spout.startup.sleep.ms") != null) {
+					conf.put(TwitterFileSpout.CONF_STARTUP_SLEEP_MS,
+							(Integer) Configuration
+									.get("sentistorm.spout.startup.sleep.ms"));
+				}
+				spout = new TwitterFileSpout(
+						(String) Configuration
+								.get("sentistorm.spout.static.tweets"));
+				spoutID = TwitterFileSpout.ID;
+			}
+		}
 
-    // Create Spout
-    IRichSpout spout;
-    String spoutID = "";
-    if (consumerKey.isEmpty()) {
-      if (Configuration.get("sentistorm.spout.startup.sleep.ms") != null) {
-        conf.put(DatasetSpout.CONF_STARTUP_SLEEP_MS,
-            (Integer) Configuration.get("sentistorm.spout.startup.sleep.ms"));
-      }
-      if (Configuration.get("sentistorm.spout.tuple.sleep.ms") != null) {
-        conf.put(DatasetSpout.CONF_TUPLE_SLEEP_MS,
-            (Integer) Configuration.get("sentistorm.spout.tuple.sleep.ms"));
-      }
-      if (Configuration.get("sentistorm.spout.tuple.sleep.ns") != null) {
-        conf.put(DatasetSpout.CONF_TUPLE_SLEEP_NS,
-            (Integer) Configuration.get("sentistorm.spout.tuple.sleep.ns"));
-      }
-      spout = new DatasetSpout();
-      spoutID = DatasetSpout.ID;
-    } else {
-      if (Configuration.get("sentistorm.spout.startup.sleep.ms") != null) {
-        conf.put(TwitterStreamSpout.CONF_STARTUP_SLEEP_MS,
-            (Integer) Configuration.get("sentistorm.spout.startup.sleep.ms"));
-      }
-      spout = new TwitterStreamSpout(consumerKey, consumerSecret, accessToken,
-          accessTokenSecret, keyWords,
-          (String) Configuration.get("sentistorm.spout.filter.language"));
-      spoutID = TwitterStreamSpout.ID;
-    }
+		// Create Bolts
+		TokenizerBolt tokenizerBolt = new TokenizerBolt();
+		PreprocessorBolt preprocessorBolt = new PreprocessorBolt();
+		POSTaggerBolt posTaggerBolt = new POSTaggerBolt();
+		FeatureGenerationBolt featureGenerationBolt = new FeatureGenerationBolt();
+		SVMBolt svmBolt = new SVMBolt();
+		NodeJsSenderBolt nodeJsSendeerBolt = new NodeJsSenderBolt();
 
-    // Create Bolts
-    TokenizerBolt tokenizerBolt = new TokenizerBolt();
-    PreprocessorBolt preprocessorBolt = new PreprocessorBolt();
-    POSTaggerBolt posTaggerBolt = new POSTaggerBolt();
-    FeatureGenerationBolt featureGenerationBolt = new FeatureGenerationBolt();
-    SVMBolt svmBolt = new SVMBolt();
+		// Create Topology
+		TopologyBuilder builder = new TopologyBuilder();
 
-    // Create Topology
-    TopologyBuilder builder = new TopologyBuilder();
+		// Set Spout
+		builder.setSpout(spoutID, spout,
+				Configuration.get("sentistorm.spout.parallelism", 1));
 
-    // Set Spout
-    builder.setSpout(spoutID, spout,
-        Configuration.get("sentistorm.spout.parallelism", 1));
+		// Set Spout --> TokenizerBolt
+		builder.setBolt(TokenizerBolt.ID, tokenizerBolt,
+				Configuration.get("sentistorm.bolt.tokenizer.parallelism", 1))
+				.shuffleGrouping(spoutID);
 
-    // Set Spout --> TokenizerBolt
-    builder.setBolt(TokenizerBolt.ID, tokenizerBolt,
-        Configuration.get("sentistorm.bolt.tokenizer.parallelism", 1))
-        .shuffleGrouping(spoutID);
+		// TokenizerBolt --> PreprocessorBolt
+		builder.setBolt(
+				PreprocessorBolt.ID,
+				preprocessorBolt,
+				Configuration
+						.get("sentistorm.bolt.preprocessor.parallelism", 1))
+				.shuffleGrouping(TokenizerBolt.ID);
 
-    // TokenizerBolt --> PreprocessorBolt
-    builder.setBolt(PreprocessorBolt.ID, preprocessorBolt,
-        Configuration.get("sentistorm.bolt.preprocessor.parallelism", 1))
-        .shuffleGrouping(TokenizerBolt.ID);
+		// PreprocessorBolt --> POSTaggerBolt
+		builder.setBolt(POSTaggerBolt.ID, posTaggerBolt,
+				Configuration.get("sentistorm.bolt.postagger.parallelism", 1))
+				.shuffleGrouping(PreprocessorBolt.ID);
 
-    // PreprocessorBolt --> POSTaggerBolt
-    builder.setBolt(POSTaggerBolt.ID, posTaggerBolt,
-        Configuration.get("sentistorm.bolt.postagger.parallelism", 1))
-        .shuffleGrouping(PreprocessorBolt.ID);
+		// POSTaggerBolt --> FeatureGenerationBolt
+		builder.setBolt(
+				FeatureGenerationBolt.ID,
+				featureGenerationBolt,
+				Configuration.get(
+						"sentistorm.bolt.featuregeneration.parallelism", 1))
+				.shuffleGrouping(POSTaggerBolt.ID);
 
-    // POSTaggerBolt --> FeatureGenerationBolt
-    builder.setBolt(FeatureGenerationBolt.ID, featureGenerationBolt,
-        Configuration.get("sentistorm.bolt.featuregeneration.parallelism", 1))
-        .shuffleGrouping(POSTaggerBolt.ID);
+		// FeatureGenerationBolt --> SVMBolt
+		builder.setBolt(SVMBolt.ID, svmBolt,
+				Configuration.get("sentistorm.bolt.svm.parallelism", 1))
+				.shuffleGrouping(FeatureGenerationBolt.ID);
 
-    // FeatureGenerationBolt --> SVMBolt
-    builder.setBolt(SVMBolt.ID, svmBolt,
-        Configuration.get("sentistorm.bolt.svm.parallelism", 1))
-        .shuffleGrouping(FeatureGenerationBolt.ID);
+		// SVMNolt --> NodeJSSenderBolt
+		builder.setBolt(
+				NodeJsSenderBolt.ID,
+				nodeJsSendeerBolt,
+				Configuration
+						.get("sentistorm.bolt.nodejssender.parallelism", 1))
+				.allGrouping(svmBolt.ID);
 
-    // Set topology config
-    conf.setNumWorkers(Configuration.get("sentistorm.workers.num", 1));
+		// Set topology config
+		conf.setNumWorkers(Configuration.get("sentistorm.workers.num", 1));
 
-    if (Configuration.get("sentistorm.spout.max.pending") != null) {
-      conf.setMaxSpoutPending((Integer) Configuration
-          .get("sentistorm.spout.max.pending"));
-    }
+		if (Configuration.get("sentistorm.spout.max.pending") != null) {
+			conf.setMaxSpoutPending((Integer) Configuration
+					.get("sentistorm.spout.max.pending"));
+		}
 
-    if (Configuration.get("sentistorm.workers.childopts") != null) {
-      conf.put(Config.WORKER_CHILDOPTS,
-          Configuration.get("sentistorm.workers.childopts"));
-    }
-    if (Configuration.get("sentistorm.supervisor.childopts") != null) {
-      conf.put(Config.SUPERVISOR_CHILDOPTS,
-          Configuration.get("sentistorm.supervisor.childopts"));
-    }
+		if (Configuration.get("sentistorm.workers.childopts") != null) {
+			conf.put(Config.WORKER_CHILDOPTS,
+					Configuration.get("sentistorm.workers.childopts"));
+		}
+		if (Configuration.get("sentistorm.supervisor.childopts") != null) {
+			conf.put(Config.SUPERVISOR_CHILDOPTS,
+					Configuration.get("sentistorm.supervisor.childopts"));
+		}
 
-    conf.put(TokenizerBolt.CONF_LOGGING,
-        Configuration.get("sentistorm.bolt.tokenizer.logging", false));
-    conf.put(PreprocessorBolt.CONF_LOGGING,
-        Configuration.get("sentistorm.bolt.preprocessor.logging", false));
-    conf.put(POSTaggerBolt.CONF_LOGGING,
-        Configuration.get("sentistorm.bolt.postagger.logging", false));
-    conf.put(POSTaggerBolt.CONF_MODEL,
-        Configuration.get("sentistorm.bolt.postagger.model"));
-    conf.put(FeatureGenerationBolt.CONF_LOGGING,
-        Configuration.get("sentistorm.bolt.featuregeneration.logging", false));
-    conf.put(SVMBolt.CONF_LOGGING,
-        Configuration.get("sentistorm.bolt.svm.logging", false));
+		conf.put(TokenizerBolt.CONF_LOGGING,
+				Configuration.get("sentistorm.bolt.tokenizer.logging", false));
+		conf.put(PreprocessorBolt.CONF_LOGGING, Configuration.get(
+				"sentistorm.bolt.preprocessor.logging", false));
+		conf.put(POSTaggerBolt.CONF_LOGGING,
+				Configuration.get("sentistorm.bolt.postagger.logging", false));
+		conf.put(POSTaggerBolt.CONF_MODEL,
+				Configuration.get("sentistorm.bolt.postagger.model"));
+		conf.put(FeatureGenerationBolt.CONF_LOGGING, Configuration.get(
+				"sentistorm.bolt.featuregeneration.logging", false));
+		conf.put(SVMBolt.CONF_LOGGING,
+				Configuration.get("sentistorm.bolt.svm.logging", false));
+		conf.put(NodeJsSenderBolt.CONF_NODESERVER, Configuration.get(
+				"sentistorm.bolt.nodejssender.webserver",
+				"http://172.17.42.1:3001/post"));
 
-    conf.put(Config.TOPOLOGY_FALL_BACK_ON_JAVA_SERIALIZATION, false);
-    conf.registerSerialization(TaggedToken.class, TaggedTokenSerializer.class);
-    conf.registerSerialization(TreeMap.class, TreeMapSerializer.class);
+		conf.put(Config.TOPOLOGY_FALL_BACK_ON_JAVA_SERIALIZATION, false);
+		conf.registerSerialization(TaggedToken.class,
+				TaggedTokenSerializer.class);
+		conf.registerSerialization(TreeMap.class, TreeMapSerializer.class);
 
-    // conf.put(Config.TOPOLOGY_RECEIVER_BUFFER_SIZE, 8);
-    // conf.put(Config.TOPOLOGY_TRANSFER_BUFFER_SIZE, 32);
-    // conf.put(Config.TOPOLOGY_EXECUTOR_RECEIVE_BUFFER_SIZE, 16384);
-    // conf.put(Config.TOPOLOGY_EXECUTOR_SEND_BUFFER_SIZE, 16384);
+		conf.put(Config.TOPOLOGY_BUILTIN_METRICS_BUCKET_SIZE_SECS,
+				Configuration.get("topology.builtin.metrics.bucket.size.secs",
+						"1"));
 
-    StormSubmitter
-        .submitTopology(TOPOLOGY_NAME, conf, builder.createTopology());
+		String[] graphiteConf = {
+				Configuration
+						.get("topology.metrics.consumer.register.metrics.reporter.name"),
+				"com.verisign.storm.metrics.reporters.graphite.GraphiteReporter",
+				Configuration
+						.get("topology.metrics.consumer.register.metrics.graphite.host",
+								"172.17.42.1"),
+				Configuration
+						.get("topology.metrics.consumer.register.metrics.graphite.port",
+								"2003"),
+				Configuration
+						.get("topology.metrics.consumer.register.metrics.graphite.prefix",
+								"storm.test"),
+				Configuration
+						.get("topology.metrics.consumer.register.metrics.graphite.min-connect-attempt-interval-secs",
+								"5") };
+//		conf.registerMetricsConsumer(GraphiteMetricsConsumer.class,
+//				graphiteConf, Long.parseLong(Configuration.get(
+//						"topology.metrics.consumer.register.parallelism.hint",
+//						"1")));
 
-    System.out.println("To kill the topology run:");
-    System.out.println("storm kill " + TOPOLOGY_NAME);
-  }
+//		conf.registerMetricsConsumer(LoggingMetricsConsumer.class, 1);
+		// conf.put(Config.TOPOLOGY_RECEIVER_BUFFER_SIZE, 8);
+		// conf.put(Config.TOPOLOGY_TRANSFER_BUFFER_SIZE, 32);
+		// conf.put(Config.TOPOLOGY_EXECUTOR_RECEIVE_BUFFER_SIZE, 16384);
+		// conf.put(Config.TOPOLOGY_EXECUTOR_SEND_BUFFER_SIZE, 16384);
+		if (LOCAL) {
+			LocalCluster cluster = new LocalCluster();
+			cluster.submitTopology("sentiment-analysis", new Config(),
+					builder.createTopology());
+			Thread.sleep(6000000);
+			cluster.shutdown();
+		} else {
+			StormSubmitter.submitTopology(TOPOLOGY_NAME, conf,
+					builder.createTopology());
+
+			System.out.println("To kill the topology run:");
+			System.out.println("storm kill " + TOPOLOGY_NAME);
+		}
+	}
 
 }

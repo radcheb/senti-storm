@@ -16,12 +16,21 @@
  */
 package at.illecker.sentistorm.spout;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.file.Path;
 import java.util.Map;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import edu.stanford.nlp.international.arabic.Buckwalter;
 import twitter4j.FilterQuery;
 import twitter4j.StallWarning;
 import twitter4j.Status;
@@ -31,6 +40,7 @@ import twitter4j.TwitterStream;
 import twitter4j.TwitterStreamFactory;
 import twitter4j.auth.AccessToken;
 import twitter4j.conf.ConfigurationBuilder;
+import twitter4j.json.DataObjectFactory;
 import at.illecker.sentistorm.commons.SentimentClass;
 import at.illecker.sentistorm.commons.util.TimeUtils;
 import backtype.storm.Config;
@@ -41,34 +51,25 @@ import backtype.storm.topology.base.BaseRichSpout;
 import backtype.storm.tuple.Fields;
 import backtype.storm.tuple.Values;
 
-public class TwitterStreamSpout extends BaseRichSpout {
-  public static final String ID = "twitter-stream-spout";
+public class TwitterFileSpout extends BaseRichSpout {
+  public static final String ID = "twitter-file-spout";
   public static final String CONF_STARTUP_SLEEP_MS = ID + ".startup.sleep.ms";
-  private static final long serialVersionUID = -4657730220755697034L;
-  private static final int UPDATE_TIME_THRESHOLD = 10000;
+  private static final long serialVersionUID = -4658730220755697034L;
+  private static final int UPDATE_TIME_THRESHOLD = 10000; //10 sec
   private SpoutOutputCollector m_collector;
   private LinkedBlockingQueue<Status> m_tweetsQueue = null;
-  private TwitterStream m_twitterStream;
-  private String m_consumerKey;
-  private String m_consumerSecret;
-  private String m_accessToken;
-  private String m_accessTokenSecret;
-  private String[] m_keyWords;
   private String m_filterLanguage;
   private long input_rate;
   private long input_timestamp;
   private static final Logger LOG = LoggerFactory
-	      .getLogger(TwitterStreamSpout.class);
-
-  public TwitterStreamSpout(String consumerKey, String consumerSecret,
-      String accessToken, String accessTokenSecret, String[] keyWords,
-      String filterLanguage) {
-    this.m_consumerKey = consumerKey;
-    this.m_consumerSecret = consumerSecret;
-    this.m_accessToken = accessToken;
-    this.m_accessTokenSecret = accessTokenSecret;
-    this.m_keyWords = keyWords;
-    this.m_filterLanguage = filterLanguage; // "en"
+	      .getLogger(TwitterFileSpout.class);
+  private static String path;
+  
+  public TwitterFileSpout(String path){
+	  this.path=path;
+	  if(path==null){
+		  path="tweets/tweets.txt";
+	  }
   }
 
   @Override
@@ -82,7 +83,7 @@ public class TwitterStreamSpout extends BaseRichSpout {
   public void open(Map config, TopologyContext context,
       SpoutOutputCollector collector) {
     m_collector = collector;
-    m_tweetsQueue = new LinkedBlockingQueue<Status>(1000);
+    m_tweetsQueue = new LinkedBlockingQueue<Status>(2048);
     input_rate=0;
     input_timestamp=System.currentTimeMillis();
     // Optional startup sleep to finish bolt preparation
@@ -92,82 +93,41 @@ public class TwitterStreamSpout extends BaseRichSpout {
       TimeUtils.sleepMillis(startupSleepMillis);
     }
 
-    TwitterStream twitterStream = new TwitterStreamFactory(
-        new ConfigurationBuilder().setJSONStoreEnabled(true).build())
-        .getInstance();
+    BufferedReader reader;
+    LOG.info("reading file: "+path);
+    try {
+//		ClassLoader classLoader = getClass().getClassLoader();
+//		File file =new File(classLoader.getResource(path).getFile());
+//	    reader=new BufferedReader(new FileReader(path));
 
-    // Set Listener
-    twitterStream.addListener(new StatusListener() {
-      @Override
-      public void onStatus(Status status) {
-        m_tweetsQueue.offer(status); // add tweet into queue
-    	input_rate++;
-        if(System.currentTimeMillis() - input_timestamp > UPDATE_TIME_THRESHOLD){
-        	LOG.info("rate:"+input_rate);
-        	input_rate=0;
-        	input_timestamp=System.currentTimeMillis();
-        }
-      }
+	    LOG.info("starting reading");
+	} catch (Exception ex) {
+		LOG.error("Error while reading file", ex);
+		LOG.trace("", ex);
+	}
 
-      @Override
-      public void onException(Exception arg0) {
-      }
-
-      @Override
-      public void onDeletionNotice(StatusDeletionNotice arg0) {
-      }
-
-      @Override
-      public void onScrubGeo(long arg0, long arg1) {
-      }
-
-      @Override
-      public void onStallWarning(StallWarning arg0) {
-      }
-
-      @Override
-      public void onTrackLimitationNotice(int arg0) {
-      }
-    });
-
-    // Set credentials
-    twitterStream.setOAuthConsumer(m_consumerKey, m_consumerSecret);
-    AccessToken token = new AccessToken(m_accessToken, m_accessTokenSecret);
-    twitterStream.setOAuthAccessToken(token);
-
-    // Filter twitter stream
-    FilterQuery tweetFilterQuery = new FilterQuery();
-    if (m_keyWords != null) {
-      tweetFilterQuery.track(m_keyWords);
-    }
-
-    // Filter location
-    // https://dev.twitter.com/docs/streaming-apis/parameters#locations
-    tweetFilterQuery.locations(new double[][] { new double[] { -180, -90, },
-        new double[] { 180, 90 } }); // any geotagged tweet
-
-    // Filter language
-    tweetFilterQuery.language(new String[] { m_filterLanguage });
-
-    twitterStream.filter(tweetFilterQuery);
   }
 
   @Override
   public void nextTuple() {
     Status tweet = m_tweetsQueue.poll();
     if (tweet == null) {
-      TimeUtils.sleepMillis(50); // sleep 50 ms
+    	// send a random tweet if the queue is empty
+    	m_collector.emit(new Values("123456", "Why this is happening to me !!!", null));
+      TimeUtils.sleepMillis(2); // sleep 1 ms
     } else {
       // Emit tweet
 //      m_collector.emit(new Values(tweet.getId(), tweet.getText(), null, input_rate));
       m_collector.emit(new Values(tweet.getId(), tweet.getText(), null));
+      input_rate++;
+      if(System.currentTimeMillis() - input_timestamp > UPDATE_TIME_THRESHOLD){
+      	LOG.info("rate:"+input_rate);
+      	input_rate=0;
+      	input_timestamp=System.currentTimeMillis();
+      }
     }
   }
 
-  @Override
-  public void close() {
-    m_twitterStream.shutdown();
-  }
 
   @Override
   public Map<String, Object> getComponentConfiguration() {
